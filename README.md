@@ -30,7 +30,7 @@ fraction of the cost.
 And if you do have time to train a deep network, Epoxy can be used to generate
 labels to train a downstream end model as well.
 
-Check out our paper on [arXiv] for more details!
+Check out our paper on [arXiv](https://arxiv.org/abs/2006.15168) for more details!
 
 ## Getting Started
 * [Install](#installation) Epoxy
@@ -69,12 +69,12 @@ for more details.
 
 ## Citation
 
-If you use our work or found it useful, please cite our [arXiv paper] for now:
+If you use our work or found it useful, please cite our [arXiv paper](https://arxiv.org/abs/2006.15168) for now:
 ```
 @article{chen2020train,
   author = {Mayee F. Chen and Daniel Y. Fu and Frederic Sala and Sen Wu and Ravi Teja Mullapudi and Fait Poms and Kayvon Fatahalian and Christopher R\'e},
   title = {Train and You'll Miss It: Interactive Model Iteration with Weak Supervision and Pre-Trained Embeddings},
-  journal = {FILL THIS IN},
+  journal = {arXiv preprint arXiv:2006.15168},
   year = {2020},
 }
 ```
