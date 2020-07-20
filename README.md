@@ -62,6 +62,11 @@ git clone https://github.com/HazyResearch/epoxy.git
 
 cd epoxy
 
+# if you are on a machine with a GPU
+pip install faiss-gpu
+# if you are on a machine without a GPU
+pip install faiss-cpu
+
 pip install -e .
 ```
 
