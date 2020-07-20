@@ -126,7 +126,7 @@ class Epoxy:
             self.closest_pos = closest_pos
             self.closest_neg = closest_neg
         
-    def extend_lfs(self, thresholds):
+    def extend(self, thresholds):
         '''
         Extend L_mat (which was specified during pre-processing).
         '''
