@@ -1,4 +1,156 @@
 import numpy as np
+import faiss
+from sklearn.metrics import pairwise
+
+class Epoxy:
+    '''
+    Class wrapping the functionality to extend LF's.
+    
+    Uses FAISS for nearest-neighbor search under the hood.
+    '''
+    
+    def __init__(
+        self,
+        L_train,
+        train_embeddings,
+        gpu = False,
+        metric = 'cosine',
+        method = 'faiss'
+    ):
+        '''
+        Initialize an instance of Epoxy.
+        
+        Args:
+            L_train: The training matrix to look through to find nearest neighbors
+            train_embeddings: embeddings of each item in L_train
+            gpu: if True, build the FAISS index on GPU
+            metric: 'cosine' or 'L2' -- prefer cosine
+            method: 'faiss' or 'sklearn' -- FAISS is much faster!
+        '''
+        self.L_train = L_train
+        self.gpu = gpu
+        self.metric = metric
+        self.method = method
+        
+        if self.method == 'faiss':
+            if metric == 'cosine':
+                # Copy because faiss.normalize_L2() modifies the original
+                train_embeddings = np.copy(train_embeddings)
+
+                # Normalize the vectors before adding to the index
+                faiss.normalize_L2(train_embeddings)
+            elif metric == 'L2':
+                pass
+            else:
+                raise NotImplementedError('Metric {} not supported'.format(metric))
+
+            d = train_embeddings.shape[1]
+            m = L_train.shape[1]
+
+            self.m = m
+
+            if metric == 'cosine':
+                # use IndexFlatIP (inner product)
+                label_fn_indexes = [faiss.IndexFlatIP(d) for i in range(m)]  
+            else:  # 'L2':
+                label_fn_indexes = [faiss.IndexFlatL2(d) for i in range(m)]
+
+            if gpu:
+                res = faiss.StandardGpuResources()
+                label_fn_indexes = [faiss.index_cpu_to_gpu(res, 0, x) for x in label_fn_indexes]
+
+            support = []
+            for i in range(m):
+                support.append(np.argwhere(L_train[:, i] != 0).flatten())
+                label_fn_indexes[i].add(train_embeddings[support[i]])
+
+            self.label_fn_indexes = label_fn_indexes
+            self.support = support
+        elif self.method == 'sklearn':
+            if self.metric != 'cosine':
+                raise NotImplementedError('Metric {} not supported for sklearn'.format(self.metric))
+            self.train_embeddings = train_embeddings
+        else:
+            raise NotImplementedError('Method {} not supported'.format(self.method))
+    
+    def preprocess(
+        self,
+        L_mat,
+        mat_embeddings
+    ):
+        '''
+        Preprocess L_mat for extension.
+        
+         Args:
+            L_mat: The matrix to extend
+            mat_embeddings: embeddings of each item in L_mat
+        '''
+        self.L_mat = L_mat
+        
+        if self.method == 'faiss':
+            mat_abstains = [
+                np.argwhere(L_mat[:, i] == 0).flatten()
+                for i in range(self.m)
+            ]
+
+            self.mat_abstains = mat_abstains
+
+            dists_and_nearest = []
+            for i in range(self.m):
+                if self.metric == 'cosine':
+                    embs_query = np.copy(mat_embeddings[mat_abstains[i]])
+                    faiss.normalize_L2(embs_query)
+                else:
+                    embs_query = mat_embeddings[mat_abstains[i]]
+                dists_and_nearest.append(self.label_fn_indexes[i].search(embs_query, 1))
+
+            self.dists = [
+                dist_and_nearest[0].flatten()
+                for dist_and_nearest in dists_and_nearest
+            ]
+            self.nearest = [
+                dist_and_nearest[1].flatten()
+                for dist_and_nearest in dists_and_nearest
+            ]
+        elif self.method == 'sklearn':
+            self.mat_embeddings = mat_embeddings
+            
+            mat_to_train_sims = pairwise.cosine_similarity(
+                self.mat_embeddings, self.train_embeddings)
+            
+            mat_abstains, closest_pos, closest_neg = preprocess_lfs(
+                self.L_train, self.L_mat, mat_to_train_sims
+            )
+
+            self.mat_abstains = mat_abstains
+            self.closest_pos = closest_pos
+            self.closest_neg = closest_neg
+        
+    def extend_lfs(self, thresholds):
+        '''
+        Extend L_mat (which was specified during pre-processing).
+        '''
+        if self.method == 'faiss':
+            expanded_L_mat = np.copy(self.L_mat)
+
+            new_points = [
+                self.dists[i] > thresholds[i]
+                for i in range(self.m)
+            ]
+
+            for i in range(self.m):
+                expanded_L_mat[
+                    self.mat_abstains[i][new_points[i]], i
+                ] = self.L_train[
+                    self.support[i], i
+                ][self.nearest[i][new_points[i]]]
+
+            return expanded_L_mat
+        elif self.method == 'sklearn':
+            return extend_lfs(
+                self.L_mat, self.mat_abstains, self.closest_pos, self.closest_neg,
+                thresholds
+            )
 
 def preprocess_lfs(
     L_train,
@@ -6,6 +158,8 @@ def preprocess_lfs(
     sim_from_mat_to_train
 ):
     '''
+    Preprocessing for sklearn method.
+    
     Preprocess similarity scores and get the closest item in the support set for
     each LF.
     
@@ -71,6 +225,8 @@ def extend_lfs(
     thresholds
 ):
     '''
+    Preprocessing for sklearn method.
+    
     Extend LF's with fixed thresholds.
     
     Args:

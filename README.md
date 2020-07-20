@@ -1,5 +1,8 @@
 # Epoxy: Interactive Model Iteration with Weak Supervision and Pre-Trained Embeddings
 
+**UPDATE 07/20/20**: Code now supports using FAISS for fast and scalable NN
+search! Tutorial example updated to use FAISS now.
+
 Epoxy uses weak supervision and pre-trained embeddings to create models that
 can train at programmatically-interactive speeds (less than 1/2 second), but
 that can retain the performance of training deep networks.
