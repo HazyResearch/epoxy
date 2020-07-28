@@ -1,6 +1,8 @@
 import numpy as np
 import faiss
 from sklearn.metrics import pairwise
+import cytoolz as tz
+import torch
 
 class Epoxy:
     '''
@@ -15,7 +17,7 @@ class Epoxy:
         train_embeddings,
         gpu = False,
         metric = 'cosine',
-        method = 'faiss'
+        method = 'pytorch'
     ):
         '''
         Initialize an instance of Epoxy.
@@ -25,7 +27,7 @@ class Epoxy:
             train_embeddings: embeddings of each item in L_train
             gpu: if True, build the FAISS index on GPU
             metric: 'cosine' or 'L2' -- prefer cosine
-            method: 'faiss' or 'sklearn' -- FAISS is much faster!
+            method: 'pytorch', 'faiss', or 'sklearn'
         '''
         self.L_train = L_train
         self.gpu = gpu
@@ -66,7 +68,7 @@ class Epoxy:
 
             self.label_fn_indexes = label_fn_indexes
             self.support = support
-        elif self.method == 'sklearn':
+        elif self.method in ['sklearn', 'pytorch']:
             if self.metric != 'cosine':
                 raise NotImplementedError('Metric {} not supported for sklearn'.format(self.metric))
             self.train_embeddings = train_embeddings
@@ -76,7 +78,8 @@ class Epoxy:
     def preprocess(
         self,
         L_mat,
-        mat_embeddings
+        mat_embeddings,
+        batch_size = None
     ):
         '''
         Preprocess L_mat for extension.
@@ -84,6 +87,8 @@ class Epoxy:
          Args:
             L_mat: The matrix to extend
             mat_embeddings: embeddings of each item in L_mat
+            batch_size: if not None, compute in batches of this size
+                (especially important for PyTorch similarity if done on GPU)
         '''
         self.L_mat = L_mat
         
@@ -102,6 +107,8 @@ class Epoxy:
                     faiss.normalize_L2(embs_query)
                 else:
                     embs_query = mat_embeddings[mat_abstains[i]]
+                if batch_size is not None:
+                    raise NotImplementedError('batch_size not supported yet for FAISS')
                 dists_and_nearest.append(self.label_fn_indexes[i].search(embs_query, 1))
 
             self.dists = [
@@ -112,11 +119,32 @@ class Epoxy:
                 dist_and_nearest[1].flatten()
                 for dist_and_nearest in dists_and_nearest
             ]
-        elif self.method == 'sklearn':
+        elif self.method in ['sklearn', 'pytorch']:
             self.mat_embeddings = mat_embeddings
             
-            mat_to_train_sims = pairwise.cosine_similarity(
-                self.mat_embeddings, self.train_embeddings)
+            def comp_similarity(embs):
+                if self.method == 'sklearn':
+                    return pairwise.cosine_similarity(embs, self.train_embeddings)
+                else:
+                    if self.gpu:
+                        return pytorch_cosine_similarity(
+                            torch.tensor(embs).type(torch.float16).cuda(),
+                            torch.tensor(self.train_embeddings).type(torch.float16).cuda()
+                        ).cpu().numpy()
+                    else:
+                        return pytorch_cosine_similarity(
+                            torch.tensor(embs).type(torch.float32),
+                            torch.tensor(self.train_embeddings).type(torch.float32)
+                        ).numpy()
+            
+            if batch_size is None:
+                mat_to_train_sims = comp_similarity(self.mat_embeddings)
+            else:
+                sims = []
+                for mat_batch in tz.partition_all(batch_size, self.mat_embeddings):
+                    sims.append(comp_similarity(mat_batch))
+                
+                mat_to_train_sims = np.concatenate(sims)
             
             mat_abstains, closest_pos, closest_neg = preprocess_lfs(
                 self.L_train, self.L_mat, mat_to_train_sims
@@ -146,12 +174,20 @@ class Epoxy:
                 ][self.nearest[i][new_points[i]]]
 
             return expanded_L_mat
-        elif self.method == 'sklearn':
+        elif self.method in ['sklearn', 'pytorch']:
             return extend_lfs(
                 self.L_mat, self.mat_abstains, self.closest_pos, self.closest_neg,
                 thresholds
             )
 
+def pytorch_cosine_similarity(a, b):
+    """
+    https://stackoverflow.com/questions/50411191/how-to-compute-the-cosine-similarity-in-pytorch-for-all-rows-in-a-matrix-with-re
+    """
+    a_norm = a / a.norm(dim=1)[:, None]
+    b_norm = b / b.norm(dim=1)[:, None]
+    return torch.mm(a_norm, b_norm.transpose(0,1))
+        
 def preprocess_lfs(
     L_train,
     L_mat,
