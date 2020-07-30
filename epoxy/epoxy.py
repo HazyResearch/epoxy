@@ -145,6 +145,8 @@ class Epoxy:
                     sims.append(comp_similarity(mat_batch))
                 
                 mat_to_train_sims = np.concatenate(sims)
+                
+            self.mat_to_train_sims = mat_to_train_sims
             
             mat_abstains, closest_pos, closest_neg = preprocess_lfs(
                 self.L_train, self.L_mat, mat_to_train_sims
