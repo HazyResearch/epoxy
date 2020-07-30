@@ -33,6 +33,7 @@ class Epoxy:
         self.gpu = gpu
         self.metric = metric
         self.method = method
+        self.preprocessed = False
         
         if self.method == 'faiss':
             if metric == 'cosine':
@@ -90,6 +91,7 @@ class Epoxy:
             batch_size: if not None, compute in batches of this size
                 (especially important for PyTorch similarity if done on GPU)
         '''
+        self.preprocessed = True
         self.L_mat = L_mat
         
         if self.method == 'faiss':
@@ -181,6 +183,14 @@ class Epoxy:
                 self.L_mat, self.mat_abstains, self.closest_pos, self.closest_neg,
                 thresholds
             )
+        
+    def get_distance_matrix(self):
+        if not self.preprocessed:
+            raise NotImplementedError('Need to run preprocessing first!')
+        if self.method == 'faiss':
+            raise NotImplementedError("FAISS doesn't compute the distance matrix!")
+            
+        return self.mat_to_train_sims
 
 def pytorch_cosine_similarity(a, b):
     """
