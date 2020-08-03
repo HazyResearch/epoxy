@@ -218,10 +218,7 @@ def pytorch_cosine_similarity(a, b):
     return torch.mm(a_norm, b_norm.transpose(0,1))
 
 def pytorch_l2_distance(a, b):
-    return torch.cdist(
-        torch.tensor(a).type(torch.float16).cuda(),
-        torch.tensor(b).type(torch.float16).cuda()
-    )
+    return torch.cdist(a, b)
         
 def preprocess_lfs(
     L_train,
