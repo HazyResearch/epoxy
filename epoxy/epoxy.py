@@ -314,7 +314,7 @@ def extend_lfs(
     m = L_mat.shape[1]
     expanded_L_mat = np.copy(L_mat)
     
-    if self.metric == 'cosine':
+    if metric == 'cosine':
         new_pos = [
             (closest_pos[i] > closest_neg[i]) & (closest_pos[i] > thresholds[i])
             for i in range(m)
