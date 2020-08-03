@@ -35,6 +35,9 @@ class Epoxy:
         self.method = method
         self.preprocessed = False
         
+        if metric not in ['cosine', 'l2']:
+            raise NotImplementedError('Metric {} not supported'.format(metric))
+        
         if self.method == 'faiss':
             if metric == 'cosine':
                 # Copy because faiss.normalize_L2() modifies the original
@@ -55,7 +58,7 @@ class Epoxy:
             if metric == 'cosine':
                 # use IndexFlatIP (inner product)
                 label_fn_indexes = [faiss.IndexFlatIP(d) for i in range(m)]  
-            else:  # 'L2':
+            elif metric == 'l2':  # 'L2':
                 label_fn_indexes = [faiss.IndexFlatL2(d) for i in range(m)]
 
             if gpu:
@@ -70,8 +73,6 @@ class Epoxy:
             self.label_fn_indexes = label_fn_indexes
             self.support = support
         elif self.method in ['sklearn', 'pytorch']:
-            if self.metric != 'cosine':
-                raise NotImplementedError('Metric {} not supported for sklearn'.format(self.metric))
             self.train_embeddings = train_embeddings
         else:
             raise NotImplementedError('Method {} not supported'.format(self.method))
@@ -125,19 +126,34 @@ class Epoxy:
             self.mat_embeddings = mat_embeddings
             
             def comp_similarity(embs):
-                if self.method == 'sklearn':
-                    return pairwise.cosine_similarity(embs, self.train_embeddings)
-                else:
-                    if self.gpu:
-                        return pytorch_cosine_similarity(
-                            torch.tensor(embs).type(torch.float16).cuda(),
-                            torch.tensor(self.train_embeddings).type(torch.float16).cuda()
-                        ).cpu().numpy()
+                if self.metric == 'cosine':
+                    if self.method == 'sklearn':
+                        return pairwise.cosine_similarity(embs, self.train_embeddings)
                     else:
-                        return pytorch_cosine_similarity(
-                            torch.tensor(embs).type(torch.float32),
-                            torch.tensor(self.train_embeddings).type(torch.float32)
-                        ).numpy()
+                        if self.gpu:
+                            return pytorch_cosine_similarity(
+                                torch.tensor(embs).type(torch.float16).cuda(),
+                                torch.tensor(self.train_embeddings).type(torch.float16).cuda()
+                            ).cpu().numpy()
+                        else:
+                            return pytorch_cosine_similarity(
+                                torch.tensor(embs).type(torch.float32),
+                                torch.tensor(self.train_embeddings).type(torch.float32)
+                            ).numpy()
+                else:
+                    if self.method == 'sklearn':
+                        return pairwise.euclidean_distances(embs, self.train_embeddings)
+                    else:
+                        if self.gpu:
+                            return pytorch_l2_distance(
+                                torch.tensor(embs).type(torch.float16).cuda(),
+                                torch.tensor(self.train_embeddings).type(torch.float16).cuda()
+                            ).cpu().numpy()
+                        else:
+                            return pytorch_l2_distance(
+                                torch.tensor(embs).type(torch.float32),
+                                torch.tensor(self.train_embeddings).type(torch.float32)
+                            ).numpy()
             
             if batch_size is None:
                 mat_to_train_sims = comp_similarity(self.mat_embeddings)
@@ -166,7 +182,8 @@ class Epoxy:
             expanded_L_mat = np.copy(self.L_mat)
 
             new_points = [
-                self.dists[i] > thresholds[i]
+                (self.dists[i] > thresholds[i]) if self.metric == 'cosine' else
+                (self.dists[i] < thresholds[i])
                 for i in range(self.m)
             ]
 
@@ -181,7 +198,7 @@ class Epoxy:
         elif self.method in ['sklearn', 'pytorch']:
             return extend_lfs(
                 self.L_mat, self.mat_abstains, self.closest_pos, self.closest_neg,
-                thresholds
+                thresholds, metric = self.metric
             )
         
     def get_distance_matrix(self):
@@ -199,6 +216,12 @@ def pytorch_cosine_similarity(a, b):
     a_norm = a / a.norm(dim=1)[:, None]
     b_norm = b / b.norm(dim=1)[:, None]
     return torch.mm(a_norm, b_norm.transpose(0,1))
+
+def pytorch_l2_distance(a, b):
+    return torch.cdist(
+        torch.tensor(a).type(torch.float16).cuda(),
+        torch.tensor(b).type(torch.float16).cuda()
+    ).cpu().numpy()
         
 def preprocess_lfs(
     L_train,
@@ -270,7 +293,8 @@ def extend_lfs(
     mat_abstains,
     closest_pos,
     closest_neg,
-    thresholds
+    thresholds,
+    metric = 'cosine'
 ):
     '''
     Preprocessing for sklearn method.
@@ -293,14 +317,24 @@ def extend_lfs(
     m = L_mat.shape[1]
     expanded_L_mat = np.copy(L_mat)
     
-    new_pos = [
-        (closest_pos[i] > closest_neg[i]) & (closest_pos[i] > thresholds[i])
-        for i in range(m)
-    ]
-    new_neg = [
-        (closest_neg[i] > closest_pos[i]) & (closest_neg[i] > thresholds[i])
-        for i in range(m)
-    ]
+    if self.metric == 'cosine':
+        new_pos = [
+            (closest_pos[i] > closest_neg[i]) & (closest_pos[i] > thresholds[i])
+            for i in range(m)
+        ]
+        new_neg = [
+            (closest_neg[i] > closest_pos[i]) & (closest_neg[i] > thresholds[i])
+            for i in range(m)
+        ]
+    else:
+        new_pos = [
+            (closest_pos[i] > closest_neg[i]) & (closest_pos[i] < thresholds[i])
+            for i in range(m)
+        ]
+        new_neg = [
+            (closest_neg[i] > closest_pos[i]) & (closest_neg[i] < thresholds[i])
+            for i in range(m)
+        ]
 
     for i in range(m):
         expanded_L_mat[mat_abstains[i][new_pos[i]], i] = 1
