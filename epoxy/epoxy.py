@@ -221,7 +221,7 @@ def pytorch_l2_distance(a, b):
     return torch.cdist(
         torch.tensor(a).type(torch.float16).cuda(),
         torch.tensor(b).type(torch.float16).cuda()
-    ).cpu().numpy()
+    )
         
 def preprocess_lfs(
     L_train,
