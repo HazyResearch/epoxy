@@ -167,7 +167,7 @@ class Epoxy:
             self.mat_to_train_sims = mat_to_train_sims
             
             mat_abstains, closest_pos, closest_neg = preprocess_lfs(
-                self.L_train, self.L_mat, mat_to_train_sims
+                self.L_train, self.L_mat, mat_to_train_sims, use_dists = self.metric == 'l2'
             )
 
             self.mat_abstains = mat_abstains
@@ -223,7 +223,8 @@ def pytorch_l2_distance(a, b):
 def preprocess_lfs(
     L_train,
     L_mat,
-    sim_from_mat_to_train
+    sim_from_mat_to_train,
+    use_dists = False,
 ):
     '''
     Preprocessing for sklearn method.
@@ -237,6 +238,7 @@ def preprocess_lfs(
         sim_from_mat_to_train: Similarity scores from L_mat to L_train.
             sim_from_mat_to_train[i][j] stores the similarity between element i of
             L_mat to element j of L_train.
+        use_dists: if True, sim_from_mat_to_train actually stores distances.
             
     Returns:
         A tuple of three Numpy matrices.
@@ -273,12 +275,12 @@ def preprocess_lfs(
     ]
 
     closest_pos = [
-        np.max(pos_dists[i], axis=1)
+        (np.max(pos_dists[i], axis=1) if not use_dists else np.min(pos_dists[i], axis = 1))
         if pos_dists[i].shape[1] > 0 else np.full(mat_abstains[i].shape, -1)
         for i in range(m)
     ]
     closest_neg = [
-        np.max(neg_dists[i], axis=1)
+        (np.max(neg_dists[i], axis=1) if not use_dists else np.min(neg_dists[i], axis = 1))
         if neg_dists[i].shape[1] > 0 else np.full(mat_abstains[i].shape, -1)
         for i in range(m)
     ]
