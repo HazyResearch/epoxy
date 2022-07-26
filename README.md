@@ -1,5 +1,6 @@
 # Epoxy: Interactive Model Iteration with Weak Supervision and Pre-Trained Embeddings
 
+**UPDATE 07/26/22**: Our newest code is now [Liger repo](https://github.com/HazyResearch/liger)
 **UPDATE 07/20/20**: Code now supports using FAISS for fast and scalable NN
 search! Tutorial example updated to use FAISS now.
 
